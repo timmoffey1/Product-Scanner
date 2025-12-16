@@ -18,7 +18,7 @@ st.write("Загрузи фото товара — мы попробуем сч�
 st.divider()
 
 # ----------------------------
-# ФУНКЦИЯ: поиск товара в OpenFoodFacts
+# ПОИСК ТОВАРА
 # ----------------------------
 def get_product_info(barcode: str):
     url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
@@ -29,7 +29,6 @@ def get_product_info(barcode: str):
         return r.json()
     except Exception:
         return None
-
 
 # ----------------------------
 # ЗАГРУЗКА ФОТО
@@ -42,9 +41,6 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     col1, col2 = st.columns(2)
 
-    # ----------------------------
-    # ОТОБРАЖЕНИЕ ФОТО
-    # ----------------------------
     with col1:
         st.image(uploaded_file, caption="Исходное фото", use_container_width=True)
 
@@ -57,15 +53,15 @@ if uploaded_file:
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
         # ----------------------------
-        # ПОИСК ШТРИХКОДА (OpenCV)
+        # ДЕТЕКТОР ШТРИХКОДОВ
         # ----------------------------
         detector = cv2.barcode.BarcodeDetector()
 
         with st.spinner("Ищем штрихкод..."):
             result = detector.detectAndDecode(gray)
 
-        # Совместимость с разными версиями OpenCV
-        if len(result) == 4:
+        # Совместимость с версиями OpenCV
+        if isinstance(result, tuple) and len(result) == 4:
             success, decoded_info, points, _ = result
         else:
             success, decoded_info, points = result
@@ -73,11 +69,12 @@ if uploaded_file:
         with col2:
             st.subheader("Результат анализа")
 
-            if success and decoded_info:
+            # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА
+            if success is True and isinstance(decoded_info, str) and decoded_info.strip() != "":
                 barcode = decoded_info.strip()
+
                 st.success("✅ Штрихкод найден!")
                 st.info(f"**Тип:** EAN / UPC\n\n**Номер:** `{barcode}`")
-
                 st.divider()
 
                 # ----------------------------
@@ -105,16 +102,16 @@ if uploaded_file:
                         st.caption("Фото товара отсутствует в базе.")
 
                 elif product_data and product_data.get("status") == 0:
-                    st.warning("Товар с таким штрихкодом не найден в OpenFoodFacts.")
+                    st.warning("Товар не найден в OpenFoodFacts.")
                 else:
                     st.error("Ошибка при подключении к базе товаров.")
 
             else:
                 st.warning("⚠️ Штрихкод не найден.")
                 st.write(
-                    "- Убедись, что штрихкод полностью в кадре\n"
+                    "- Штрихкод должен быть ровно в кадре\n"
                     "- Избегай бликов\n"
-                    "- Попробуй сделать фото ровнее"
+                    "- Попробуй приблизить камеру"
                 )
 
     except Exception as e:
