@@ -4,54 +4,31 @@ import requests
 import cv2
 import numpy as np
 
-# ----------------------------
-# НАСТРОЙКИ
-# ----------------------------
-st.set_page_config(
-    page_title="Product Scanner",
-    page_icon="📦",
-    layout="centered"
-)
+st.set_page_config(page_title="Product Scanner", page_icon="📦")
 
 st.title("📦 Product Scanner")
 st.write("Загрузи фото товара — мы попробуем считать штрихкод и найти информацию.")
 st.divider()
 
-# ----------------------------
-# ПОИСК ТОВАРА
-# ----------------------------
-def get_product_info(barcode: str):
+def get_product_info(barcode):
     url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
     try:
         r = requests.get(url, timeout=10)
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except Exception:
+        return r.json() if r.status_code == 200 else None
+    except:
         return None
 
-# ----------------------------
-# ПРЕДОБРАБОТКА ИЗОБРАЖЕНИЯ
-# ----------------------------
 def preprocess(img):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-    # Увеличение контраста
     gray = cv2.equalizeHist(gray)
-
-    # Адаптивный threshold
     thresh = cv2.adaptiveThreshold(
         gray, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY,
         31, 10
     )
-
     return gray, thresh
 
-# ----------------------------
-# ЗАГРУЗКА ФОТО
-# ----------------------------
 uploaded_file = st.file_uploader(
     "Загрузи фото со штрихкодом",
     type=["jpg", "jpeg", "png", "dng"]
@@ -64,52 +41,48 @@ if uploaded_file:
         st.image(uploaded_file, caption="Исходное фото", use_container_width=True)
 
     try:
-        pil_image = Image.open(uploaded_file).convert("RGB")
-        img = np.array(pil_image)
-
+        img = np.array(Image.open(uploaded_file).convert("RGB"))
         detector = cv2.barcode.BarcodeDetector()
+        gray, thresh = preprocess(img)
 
-        with st.spinner("Анализ изображения..."):
-            gray, thresh = preprocess(img)
+        with st.spinner("Ищем штрихкод..."):
+            result = detector.detectAndDecode(gray)
+            if len(result) == 4:
+                success, decoded, _, _ = result
+            else:
+                decoded, _, _ = result
+                success = bool(decoded)
 
-            # 1️⃣ Попытка на обычном изображении
-            success, decoded, _, _ = detector.detectAndDecode(gray)
-
-            # 2️⃣ Если не нашли — пробуем threshold
-            if not success or not decoded:
-                success, decoded, _, _ = detector.detectAndDecode(thresh)
+            if not success:
+                result = detector.detectAndDecode(thresh)
+                if len(result) == 4:
+                    success, decoded, _, _ = result
+                else:
+                    decoded, _, _ = result
+                    success = bool(decoded)
 
         with col2:
             st.subheader("Результат анализа")
 
-            if success and isinstance(decoded, str) and decoded.strip():
+            if success and decoded:
                 barcode = decoded.strip()
-
                 st.success("✅ Штрихкод найден!")
-                st.info(f"**Тип:** EAN / UPC\n\n**Номер:** `{barcode}`")
+                st.info(f"**Номер:** `{barcode}`")
+
                 st.divider()
 
-                with st.spinner("Ищем товар в базе..."):
-                    product_data = get_product_info(barcode)
+                product_data = get_product_info(barcode)
 
                 if product_data and product_data.get("status") == 1:
-                    product = product_data.get("product", {})
-
+                    product = product_data["product"]
                     st.subheader("🧾 Информация о товаре")
                     st.write(f"**Название:** {product.get('product_name', 'Не указано')}")
                     st.write(f"**Бренд:** {product.get('brands', 'Не указано')}")
 
-                    categories = product.get("categories", "Не указано")
-                    if len(categories) > 120:
-                        categories = categories[:120] + "..."
-                    st.write(f"**Категории:** {categories}")
-
-                    image_url = product.get("image_front_url")
-                    if image_url:
-                        st.image(image_url, width=220)
+                    if product.get("image_front_url"):
+                        st.image(product["image_front_url"], width=220)
                 else:
                     st.warning("Товар не найден в базе OpenFoodFacts.")
-
             else:
                 st.warning("⚠️ Штрихкод не найден.")
                 st.markdown("""
@@ -117,9 +90,8 @@ if uploaded_file:
                 - Штрихкод должен быть полностью в кадре  
                 - Не обрезай сверху и снизу  
                 - Избегай бликов  
-                - Сделай фото чуть дальше
                 """)
 
     except Exception as e:
-        st.error("❌ Ошибка обработки изображения")
+        st.error("Ошибка обработки изображения")
         st.code(str(e))
