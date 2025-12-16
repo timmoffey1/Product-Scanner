@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 # ----------------------------
-# НАСТРОЙКИ СТРАНИЦЫ
+# НАСТРОЙКИ
 # ----------------------------
 st.set_page_config(
     page_title="Product Scanner",
@@ -31,6 +31,25 @@ def get_product_info(barcode: str):
         return None
 
 # ----------------------------
+# ПРЕДОБРАБОТКА ИЗОБРАЖЕНИЯ
+# ----------------------------
+def preprocess(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+    # Увеличение контраста
+    gray = cv2.equalizeHist(gray)
+
+    # Адаптивный threshold
+    thresh = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31, 10
+    )
+
+    return gray, thresh
+
+# ----------------------------
 # ЗАГРУЗКА ФОТО
 # ----------------------------
 uploaded_file = st.file_uploader(
@@ -45,41 +64,31 @@ if uploaded_file:
         st.image(uploaded_file, caption="Исходное фото", use_container_width=True)
 
     try:
-        # ----------------------------
-        # ПОДГОТОВКА ИЗОБРАЖЕНИЯ
-        # ----------------------------
         pil_image = Image.open(uploaded_file).convert("RGB")
         img = np.array(pil_image)
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-        # ----------------------------
-        # ДЕТЕКТОР ШТРИХКОДОВ
-        # ----------------------------
         detector = cv2.barcode.BarcodeDetector()
 
-        with st.spinner("Ищем штрихкод..."):
-            result = detector.detectAndDecode(gray)
+        with st.spinner("Анализ изображения..."):
+            gray, thresh = preprocess(img)
 
-        # Совместимость с версиями OpenCV
-        if isinstance(result, tuple) and len(result) == 4:
-            success, decoded_info, points, _ = result
-        else:
-            success, decoded_info, points = result
+            # 1️⃣ Попытка на обычном изображении
+            success, decoded, _, _ = detector.detectAndDecode(gray)
+
+            # 2️⃣ Если не нашли — пробуем threshold
+            if not success or not decoded:
+                success, decoded, _, _ = detector.detectAndDecode(thresh)
 
         with col2:
             st.subheader("Результат анализа")
 
-            # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА
-            if success is True and isinstance(decoded_info, str) and decoded_info.strip() != "":
-                barcode = decoded_info.strip()
+            if success and isinstance(decoded, str) and decoded.strip():
+                barcode = decoded.strip()
 
                 st.success("✅ Штрихкод найден!")
                 st.info(f"**Тип:** EAN / UPC\n\n**Номер:** `{barcode}`")
                 st.divider()
 
-                # ----------------------------
-                # ПОИСК ТОВАРА
-                # ----------------------------
                 with st.spinner("Ищем товар в базе..."):
                     product_data = get_product_info(barcode)
 
@@ -97,22 +106,19 @@ if uploaded_file:
 
                     image_url = product.get("image_front_url")
                     if image_url:
-                        st.image(image_url, width=220, caption="Фото из базы OpenFoodFacts")
-                    else:
-                        st.caption("Фото товара отсутствует в базе.")
-
-                elif product_data and product_data.get("status") == 0:
-                    st.warning("Товар не найден в OpenFoodFacts.")
+                        st.image(image_url, width=220)
                 else:
-                    st.error("Ошибка при подключении к базе товаров.")
+                    st.warning("Товар не найден в базе OpenFoodFacts.")
 
             else:
                 st.warning("⚠️ Штрихкод не найден.")
-                st.write(
-                    "- Штрихкод должен быть ровно в кадре\n"
-                    "- Избегай бликов\n"
-                    "- Попробуй приблизить камеру"
-                )
+                st.markdown("""
+                **Советы:**
+                - Штрихкод должен быть полностью в кадре  
+                - Не обрезай сверху и снизу  
+                - Избегай бликов  
+                - Сделай фото чуть дальше
+                """)
 
     except Exception as e:
         st.error("❌ Ошибка обработки изображения")
